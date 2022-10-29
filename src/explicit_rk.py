@@ -129,7 +129,7 @@ class ExplicitRK:
         return class_match and param_match
 
 
-    def tableau(self, output: str = ""):
+    def tableau(self, output: str = "") -> str:
         """
         Determines the Butcher tableau of the explicit Runge-Kutta method.
 
@@ -141,7 +141,8 @@ class ExplicitRK:
 
         Returns
         -------
-        None
+        str
+            String representing the Butcher tableau.
         """
         # Control spacing in tableau
         spaces = np.zeros(self.n_stages + 1, dtype=int)
@@ -181,7 +182,8 @@ class ExplicitRK:
 
 
     def _step(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
-              tn: float, yn: np.ndarray, h: float) -> np.ndarray:
+              tn: float, yn: np.ndarray, h: float,
+              args: tuple[Any]) -> np.ndarray:
         """
         Advances the numerical solution by one time step and updates
         solution value.
@@ -196,6 +198,8 @@ class ExplicitRK:
             The current numerical solution value.
         h : float
             The time step.
+        args : tuple[Any]
+            Extra arguments to pass to f (i.e. model parameters).
         
         Returns
         -------
@@ -204,9 +208,9 @@ class ExplicitRK:
         """
         # Compute k values
         k = np.zeros((self.n_stages, yn.size))
-        k[0] = f(tn, yn)
+        k[0] = f(tn, yn, *args)
         for i in range(1, self.n_stages):
-            k[i] = f(tn + h*self.c[i], yn + h*np.dot(self.A[i,:], k))
+            k[i] = f(tn + h*self.c[i], yn + h*np.dot(self.A[i,:], k), *args)
         
         # Compute updated solution value
         yn1 = yn + h*np.dot(self.b, k)
@@ -215,7 +219,8 @@ class ExplicitRK:
 
     def solve(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
               y0: Union[float, np.ndarray], t0: float, tf: float, h: float,
-              verbose: bool = True, output: str = ""):
+              args: tuple[Any] = (), verbose: bool = True,
+              output: str = "") -> tuple[np.ndarray, np.ndarray]:
         """
         Numerically solves the ODE y' = f(t, y) with initial condition
         y(t0) = y0 on the interval [t0, tf] with time step h.
@@ -232,6 +237,9 @@ class ExplicitRK:
             The final/end time.
         h : float
             The (constant) time step size.
+        args : tuple[Any], optional
+            Extra arguments to pass to f (i.e. model parameters).
+            Empty by default.
         verbose : bool, optional
             If True, provides a progress bar indicating the solution progress
             and a performance report once the solution is calculated. If False,
@@ -265,11 +273,11 @@ class ExplicitRK:
         # Solve ODE by looping over _step function
         if verbose:
             for i in tqdm(range(t.size - 1)):
-                y[i+1,:] = self._step(f, t[i], y[i,:], h)
+                y[i+1,:] = self._step(f, t[i], y[i,:], h, args=args)
 
         else:
             for i in range(t.size - 1):
-                y[i+1,:] = self._step(f, t[i], y[i,:], h)
+                y[i+1,:] = self._step(f, t[i], y[i,:], h, args=args)
         
         # Calculate solution time
         if verbose:
