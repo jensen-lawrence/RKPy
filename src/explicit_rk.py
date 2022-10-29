@@ -6,7 +6,7 @@ import numpy as np
 from math import isclose
 from time import time
 from tqdm import tqdm
-from typing import Any
+from typing import Any, Callable, Union
 
 # ------------------------------------------------------------------------------
 # Explicit RK class
@@ -178,3 +178,114 @@ class ExplicitRK:
             f.close()
 
         return tableau
+
+
+    def _step(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
+              tn: float, yn: np.ndarray, h: float) -> np.ndarray:
+        """
+        Advances the numerical solution by one time step and updates
+        solution value.
+
+        Parameters
+        ----------
+        f : Callable[[float, Union[float, numpy.ndarray]], numpy.ndarray]
+            The function on the right-hand side of the ODE y' = f(t, y).
+        tn : float
+            The current time value.
+        yn : numpy.ndarray
+            The current numerical solution value.
+        h : float
+            The time step.
+        
+        Returns
+        -------
+        numpy.ndarray
+            The updated numerical solution value.
+        """
+        # Compute k values
+        k = np.zeros((self.n_stages, yn.size))
+        k[0] = f(tn, yn)
+        for i in range(1, self.n_stages):
+            k[i] = f(tn + h*self.c[i], yn + h*np.dot(self.A[i,:], k))
+        
+        # Compute updated solution value
+        yn1 = yn + h*np.dot(self.b, k)
+        return yn1
+
+
+    def solve(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
+              y0: Union[float, np.ndarray], t0: float, tf: float, h: float,
+              verbose: bool = True, output: str = ""):
+        """
+        Numerically solves the ODE y' = f(t, y) with initial condition
+        y(t0) = y0 on the interval [t0, tf] with time step h.
+
+        Parameters
+        ----------
+        f : Callable[[float, Union[float, numpy.ndarray]], numpy.ndarray]
+            The function on the right-hand side of the ODE y' = f(t, y).
+        y0 : Union[float, numpy.ndarray]
+            The initial condition y(t0) = y0.
+        t0 : float
+            The initial/start time.
+        tf : float
+            The final/end time.
+        h : float
+            The (constant) time step size.
+        verbose : bool, optional
+            If True, provides a progress bar indicating the solution progress
+            and a performance report once the solution is calculated. If False,
+            nothing is displayed. Set to True by default.
+        output : str, optional
+            Path and file name to where the results will be saved.
+            Empty by default. If left unspecified, the results are not saved.
+
+        Returns
+        -------
+        tuple[numpy.ndarray, numpy.ndarray]
+            The time values and numerical solution values.
+        """
+        # Set initial condition to array if initial condition is a scalar
+        is_scalar = isinstance(y0, int) or isinstance(y0, float)
+        if is_scalar:
+            y0 = np.array([y0])
+        
+        # Initialize time values and empty solution array
+        t = np.arange(t0, tf + h, h)
+        y = np.zeros((t.size, y0.size))
+
+        # Save time at start of solution
+        if verbose:
+            print('Solving ODE...')
+            start_time = time()
+
+        # Set initial solution value to initial conditions
+        y[0,:] = y0
+
+        # Solve ODE by looping over _step function
+        if verbose:
+            for i in tqdm(range(t.size - 1)):
+                y[i+1,:] = self._step(f, t[i], y[i,:], h)
+
+        else:
+            for i in range(t.size - 1):
+                y[i+1,:] = self._step(f, t[i], y[i,:], h)
+        
+        # Calculate solution time
+        if verbose:
+            end_time = time() - start_time
+            print(f"Solution complete! Time elapsed: {int(end_time//60)} "
+                f"min {round(end_time % 60, 3)} sec.")
+
+        # Save results
+        if bool(output):
+            sol = np.zeros((y.shape[0], y.shape[1] + 1))
+            sol[:,0] = t
+            sol[:,1:] = y
+            np.savetxt(output, sol)
+
+        # Set solution to a 1D array for scalar equations
+        if is_scalar:
+            y = y[:,0]
+
+        return t, y
