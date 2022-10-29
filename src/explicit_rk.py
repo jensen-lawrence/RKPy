@@ -66,7 +66,7 @@ class ExplicitRK:
                              f"{c.size}")
 
         # Verify the elements of b sum to 1
-        if not isclose(np.sum(b), 1.0):
+        if not isclose(np.sum(b), 1.0, abs_tol=1e-8):
             raise ValueError("Invalid weights: the elements of b must sum "
                              f"to 1, but instead sum to {np.sum(b)}")
 
@@ -78,7 +78,7 @@ class ExplicitRK:
 
         # Verify the rows of A sum to the elements of c
         bad_idxs = np.array([i for i in range(c.size)
-                            if not isclose(np.sum(A[i,:]), c[i])])
+                            if not isclose(np.sum(A[i,:]), c[i], abs_tol=1e-8)])
         bad_Ais = np.array([np.sum(A[i,:]) for i in bad_idxs])
         bad_cs = np.array([c[i] for i in bad_idxs])
         if bad_idxs.size > 0:
