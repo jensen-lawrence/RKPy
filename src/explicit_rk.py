@@ -76,6 +76,13 @@ class ExplicitRK:
                              "Runge-Kutta method to be explicit, but instead "
                              f"is {c[0]}")
 
+        # Verify the first row of A is only zeros
+        A0 = A[0,:]
+        if A0[A0 != 0].size > 0:
+            raise ValueError("Invalid matrix: the first row of A must be "
+                             "all 0s for the Runge-Kutta method to be "
+                             f"explicit, but instead is {A0}")
+
         # Verify the rows of A sum to the elements of c
         bad_idxs = np.array([i for i in range(c.size)
                             if not isclose(np.sum(A[i,:]), c[i], abs_tol=1e-8)])
