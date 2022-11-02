@@ -64,7 +64,7 @@ class RungeKutta:
         self._check_parameters()
 
 
-    def __str__(self) -> None:
+    def __str__(self) -> str:
         """
         Provides a printable representation of the RungeKutta class.
 
