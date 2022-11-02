@@ -134,7 +134,7 @@ class RungeKutta:
         if not isinstance(self.name, str):
             raise TypeError(f"name must be a str, not {type(self.name)}")
 
-        # Verify A and c and np.ndarrays
+        # Verify A and c are np.ndarrays
         for arr in zip(("A", "c"), (self.A, self.c)):
             if not isinstance(arr[1], np.ndarray):
                 raise TypeError(f"{arr[0]} must be a numpy.ndarray, "
