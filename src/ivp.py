@@ -5,6 +5,7 @@
 import numpy as np
 from runge_kutta import RungeKutta
 from typing import Any, Callable, Union
+from scipy.optimize import fsolve
 
 # ------------------------------------------------------------------------------
 # InitialValueProblem Class
@@ -22,6 +23,7 @@ class InitialValueProblem:
     def __init__(self, f: Callable, y0: Union[float, np.ndarray],
                  t: tuple[float], dt: float, solver: RungeKutta,
                  args: tuple[Any] = (), rtol: float = None, atol: float = None,
+                 dtmin: float = None, dtmax: float = None,
                  output: str = None) -> None:
         self.f = f
         self.y0 = y0
@@ -29,8 +31,10 @@ class InitialValueProblem:
         self.dt = dt
         self.solver = solver
         self.args = args
-        self.rtol = rtol if rtol is not None else 1e-9
-        self.atol = atol if atol is not None else 1e-9
+        self.rtol = rtol if rtol is not None else 1e-8
+        self.atol = atol if atol is not None else 1e-8
+        self.dtmin = dtmin if dtmin is not None else 0.01*dt
+        self.dtmax = dtmax if dtmax is not None else 100.0*dt
         self.output = output
         self._check_parameters()
 
@@ -45,8 +49,13 @@ class InitialValueProblem:
         rep_str += f"- Initial conditions: {self.y0}\n"
         rep_str += f"- Time range: {self.t}\n"
         rep_str += f"- Time step: {self.dt}\n"
-        rep_str += f"- Relative tolerance: {self.rtol}\n"
-        rep_str += f"- Absolute tolerance: {self.atol}\n"
+
+        if self.solver.isadaptive:
+            rep_str += f"- Minimum time step: {self.dtmin}\n"
+            rep_str += f"- Maximum time step: {self.dtmax}\n"
+            rep_str += f"- Relative error tolerance: {self.rtol}\n"
+            rep_str += f"- Absolute error tolerance: {self.atol}\n"
+
         rep_str += f"- Solution method: {self.solver}"
         return rep_str
 
@@ -57,6 +66,8 @@ class InitialValueProblem:
             param_match &= np.array_equal(self.y0, other.y0)
             param_match &= self.t == other.t
             param_match &= self.dt == other.dt
+            param_match &= self.dtmin == other.dtmin
+            param_match &= self.dtmax == other.dtmax
             param_match &= self.solver == other.solver
             param_match &= self.args == other.args
             param_match &= self.rtol == other.rtol
@@ -81,13 +92,13 @@ class InitialValueProblem:
                             f"{type(self.f)}")
 
         if len(self.t) != 2:
-            raise ValueError("t must have length 2, but instead has length "
-                             f"{len(self.t)}")
+            raise ValueError("t must have 2 elements, but instead has "
+                             f"{len(self.t)} element(s)")
 
         for ti in self.t:
             if not (isinstance(ti, int) or isinstance(ti, float)):
                 raise TypeError("Elements of t must be real numbers, not "
-                                f"({type(self.t[0]), type(self.t[1])})")
+                                f"{type(self.t[0]), type(self.t[1])}")
 
         if self.t[1] < self.t[0]:
             raise ValueError("The second element of t must be equal to or "
@@ -101,11 +112,19 @@ class InitialValueProblem:
                 isinstance(self.args, np.ndarray)):
             self.args = (self.args,)
 
-        for val in zip(("dt", "rtol", "atol"), (self.dt, self.rtol, self.atol)):
-            if not isinstance(val[1], float):
-                raise TypeError(f"{val[0]} must be a float, not {type(val[0])}")
-            if val[1] <= 0.0:
-                raise ValueError(f"{val[0]} must be greater than zero")
+        if not isinstance(self.dt, float):
+            raise TypeError(f"dt must be a float, not {type(self.dt)}")
+        if self.dt <= 0.0:
+            raise ValueError("dt must be greater than zero")
+
+        if self.solver.isadaptive:
+            for val in zip(("dtmin", "dtmax", "rtol", "atol"),
+                           (self.dtmin, self.dtmax, self.rtol, self.atol)):
+                if not isinstance(val[1], float):
+                    raise TypeError(f"{val[0]} must be a float, not "
+                                    f"{type(val[0])}")
+                if val[1] <= 0.0:
+                    raise ValueError(f"{val[0]} must be greater than zero")
 
         if self.output is not None:
             if not isinstance(self.output, str):
@@ -116,9 +135,85 @@ class InitialValueProblem:
     # Public methods
     # --------------------------------------------------------------------------
 
-    def solve(self) -> tuple[np.ndarray]:
-        pass
+    def solve(self, output: str = None) -> tuple[np.ndarray]:
+        
+        f = self.f
+        y0 = self.y0
+        t0, tf = self.t
+        dt = self.dt
+        args = self.args
+        dtmin = self.dtmin
+        dtmax = self.dtmax
+        rtol = self.rtol
+        atol = self.atol
+        A = self.solver.A
+        c = self.solver.c
+        n_stages = self.solver.n_stages
+        isexplicit = self.solver.isexplicit
+        isadaptive = self.solver.isadaptive
 
+        isscalar = isinstance(y0, int) or isinstance(y0, float)
+        if isscalar:
+            y0 = np.array([y0])
+
+        if not isadaptive:
+            b = self.solver.b
+            t = np.arange(t0, tf + dt, dt)
+            y = np.zeros((t.size, y0.size))
+            y[0,:] = y0
+
+            if isexplicit:
+                for i in range(t.size - 1):
+                    y[i+1,:] = _explicit_fixed_step(f, t[i], y[i,:], dt, A,
+                                                    b, c, n_stages, args)
+
+            else:
+                for i in range(t.size - 1):
+                    y[i+1,:] = _implicit_fixed_step(f, t[i], y[i,:], dt, A,
+                                                    b, c, n_stages, args, rtol)
+
+        else:
+            b1 = self.solver.b1
+            b2 = self.solver.b2
+            t = [t0]
+            y = [y0]
+            ti = t0
+            yi = y0
+            m = 1.0/np.sqrt(y0.size)
+
+            if isexplicit:
+                while ti < tf:
+                    dt = min(dt, tf - ti)
+                    ti += dt
+                    dt, yi = _explicit_adaptive_step(f, ti, yi, dt, A, b1, b2,
+                                                     c, n_stages, args, dtmin,
+                                                     dtmax, rtol, atol, m)
+                    t.append(ti)
+                    y.append(yi)
+                    
+            else:
+                while ti <= tf:
+                    dt = min(dt, tf - ti)
+                    ti += dt
+                    dt, yi = _implicit_adaptive_step(f, ti, yi, dt, A, b1, b2,
+                                                     c, n_stages, args, dtmin,
+                                                     dtmax, rtol, atol, m)
+                    t.append(ti)
+                    y.append(yi)
+
+            t = np.array(t)
+            y = np.array(y)    
+
+        if output is not None:
+            sol = np.zeros((y.shape[0], y.shape[1] + 1))
+            sol[:,0] = t
+            sol[:,1:] = y
+            np.savetxt(output, sol)
+
+        if isscalar:
+            y = y[:,0]
+
+        return t, y
 
 # ------------------------------------------------------------------------------
 # IVP Function
@@ -126,127 +221,83 @@ class InitialValueProblem:
 
 def IVP(f: Callable, y0: Union[float, np.ndarray], t: tuple[float], dt: float,
         solver: RungeKutta, args: tuple[Any] = (), rtol: float = None,
-        atol: float = None, output: str = None) -> InitialValueProblem:
+        output: str = None) -> InitialValueProblem:
     """
     Wrapper function for the InitialValueProblem class to provide IVP as an
     abbreviation of InitialValueProblem.
     """
     return InitialValueProblem(f, y0, t, dt, solver,
-                               args=args, rtol=rtol, atol=atol, output=output)
+                               args=args, rtol=rtol, output=output)
 
-#     def _step(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
-#               tn: float, yn: np.ndarray, h: float,
-#               args: tuple[Any]) -> np.ndarray:
-#         """
-#         Advances the numerical solution by one time step and updates
-#         solution value.
+# ------------------------------------------------------------------------------
+# Step Functions
+# ------------------------------------------------------------------------------
 
-#         Parameters
-#         ----------
-#         f : Callable[[float, Union[float, numpy.ndarray]], numpy.ndarray]
-#             The function on the right-hand side of the ODE y' = f(t, y).
-#         tn : float
-#             The current time value.
-#         yn : numpy.ndarray
-#             The current numerical solution value.
-#         h : float
-#             The time step.
-#         args : tuple[Any]
-#             Extra arguments to pass to f (i.e. model parameters).
+def _explicit_fixed_step(f, tn, yn, dt, A, b, c, n_stages, args):
+    # Compute k values
+    k = np.zeros((n_stages, yn.size))
+    k[0] = f(tn, yn, *args)
+    for i in range(1, n_stages):
+        k[i] = f(tn + dt*c[i], yn + dt*np.dot(A[i,:], k), *args)
+    
+    # Compute updated solution value
+    yn1 = yn + dt*np.dot(b, k)
+
+    return yn1
+
+
+def _implicit_fixed_step(f, tn, yn, dt, A, b, c, n_stages, args):
+    # Compute k values
+    k = np.zeros((n_stages, yn.size))
+    k0 = np.zeros(n_stages)
+    one = np.ones(n_stages)
+    for i in range(yn.size):
+        k[:,i] = fsolve(lambda x: x - f(tn*one + dt*c, yn[i]*one \
+                        + dt*np.dot(A, x), *args), k0, xtol=1e-9)
+
+    # Compute updated solution value
+    yn1 = yn + dt*np.dot(b, k)
+
+    return yn1
+
+
+def _explicit_adaptive_step(f, tn, yn, dt, A, b1, b2, c, n_stages, args, dtmin, dtmax, rtol, atol, m):
+    # Compute k values
+    k = np.zeros((n_stages, yn.size))
+    k[0] = f(tn, yn, *args)
+    for i in range(1, n_stages):
+        k[i] = f(tn + dt*c[i], yn + dt*np.dot(A[i,:], k), *args)
+    
+    # Compute primary and embedded solutions
+    yn1 = yn + dt*np.dot(b1, k)
+    un1 = yn + dt*np.dot(b2, k)
+
+    # Compute error and new step size
+    err = np.abs(yn1 - un1)
+    s = (m*np.linalg.norm(err/(atol + rtol*yn1)))**(-1/n_stages)
+    dt1 = 0.8*dt*s
+    dt1 = max(min(dt1, dtmax), dtmin)
         
-#         Returns
-#         -------
-#         numpy.ndarray
-#             The updated numerical solution value.
-#         """
-#         # Compute k values
-#         k = np.zeros((self.n_stages, yn.size))
-#         k[0] = f(tn, yn, *args)
-#         for i in range(1, self.n_stages):
-#             k[i] = f(tn + h*self.c[i], yn + h*np.dot(self.A[i,:], k), *args)
-        
-#         # Compute updated solution value
-#         yn1 = yn + h*np.dot(self.b, k)
-#         return yn1
+    return dt1, yn1
 
 
-#     def solve(self, f: Callable[[float, Union[float, np.ndarray]], np.ndarray],
-#               y0: Union[float, np.ndarray], t0: float, tf: float, h: float,
-#               args: tuple[Any] = (), verbose: bool = True,
-#               output: str = "") -> tuple[np.ndarray, np.ndarray]:
-#         """
-#         Numerically solves the ODE y' = f(t, y) with initial condition
-#         y(t0) = y0 on the interval [t0, tf] with time step h.
+def _implicit_adaptive_step(f, tn, yn, dt, A, b1, b2, c, n_stages, args, dtmin, dtmax, rtol, atol, m):
+    # Compute k values
+    k = np.zeros((n_stages, yn.size))
+    k0 = np.zeros(n_stages)
+    one = np.ones(n_stages)
+    for i in range(yn.size):
+        k[:,i] = fsolve(lambda x: x - f(tn*one + dt*c, yn[i]*one \
+                        + dt*np.dot(A, x), *args), k0, xtol=1e-9)
 
-#         Parameters
-#         ----------
-#         f : Callable[[float, Union[float, numpy.ndarray]], numpy.ndarray]
-#             The function on the right-hand side of the ODE y' = f(t, y).
-#         y0 : Union[float, numpy.ndarray]
-#             The initial condition y(t0) = y0.
-#         t0 : float
-#             The initial/start time.
-#         tf : float
-#             The final/end time.
-#         h : float
-#             The (constant) time step size.
-#         args : tuple[Any], optional
-#             Extra arguments to pass to f (i.e. model parameters).
-#             Empty by default.
-#         verbose : bool, optional
-#             If True, provides a progress bar indicating the solution progress
-#             and a performance report once the solution is calculated. If False,
-#             nothing is displayed. Set to True by default.
-#         output : str, optional
-#             Path and file name to where the results will be saved.
-#             Empty by default. If left unspecified, the results are not saved.
+    # Compute updated solution value
+    yn1 = yn + dt*np.dot(b1, k)
+    un1 = yn + dt*np.dot(b2, k)
 
-#         Returns
-#         -------
-#         tuple[numpy.ndarray, numpy.ndarray]
-#             The time values and numerical solution values.
-#         """
-#         # Set initial condition to array if initial condition is a scalar
-#         is_scalar = isinstance(y0, int) or isinstance(y0, float)
-#         if is_scalar:
-#             y0 = np.array([y0])
-        
-#         # Initialize time values and empty solution array
-#         t = np.arange(t0, tf + h, h)
-#         y = np.zeros((t.size, y0.size))
+    # Compute error and new step size
+    err = np.abs(yn1 - un1)
+    s = (m*np.linalg.norm(err/(atol + rtol*yn1)))**(-1/n_stages)
+    dt1 = 0.8*dt*s
+    dt1 = max(min(dt1, dtmax), dtmin)
 
-#         # Save time at start of solution
-#         if verbose:
-#             print('Solving ODE...')
-#             start_time = time()
-
-#         # Set initial solution value to initial conditions
-#         y[0,:] = y0
-
-#         # Solve ODE by looping over _step function
-#         if verbose:
-#             for i in tqdm(range(t.size - 1)):
-#                 y[i+1,:] = self._step(f, t[i], y[i,:], h, args=args)
-
-#         else:
-#             for i in range(t.size - 1):
-#                 y[i+1,:] = self._step(f, t[i], y[i,:], h, args=args)
-        
-#         # Calculate solution time
-#         if verbose:
-#             end_time = time() - start_time
-#             print(f"Solution complete! Time elapsed: {int(end_time//60)} "
-#                 f"min {round(end_time % 60, 3)} sec.")
-
-#         # Save results
-#         if bool(output):
-#             sol = np.zeros((y.shape[0], y.shape[1] + 1))
-#             sol[:,0] = t
-#             sol[:,1:] = y
-#             np.savetxt(output, sol)
-
-#         # Set solution to a 1D array for scalar equations
-#         if is_scalar:
-#             y = y[:,0]
-
-#         return t, y
+    return dt1, yn1
