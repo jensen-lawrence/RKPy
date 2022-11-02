@@ -142,17 +142,15 @@ class RungeKutta:
 
         # Verify A is a square matrix
         if (self.A.shape[0] != self.A.shape[1]) or (len(self.A.shape) > 2):
-            raise ValueError("Invalid dimensions: A must have dimensions "
-                             "(n, n), but instead has dimensions "
-                             f"{self.A.shape}")
+            raise ValueError("A must have dimensions (n, n), but instead "
+                             f"has dimensions {self.A.shape}")
 
         # Checks for if c is provided by the user
         if self._c is not None:
             # Verify c is a vector
             if len(self.c.shape) > 1:
-                raise ValueError("Invalid dimensions: c must have dimensions "
-                                "(n,), but instead has dimensions "
-                                f"{self.c.shape}")
+                raise ValueError("c must have dimensions (n,), but instead "
+                                 f"has dimensions {self.c.shape}")
 
             # Verify the rows of A sum to the elements of c
             bad_idxs = np.array([i for i in range(self.c.size)
@@ -161,10 +159,10 @@ class RungeKutta:
             bad_Ais = np.array([np.sum(self.A[i,:]) for i in bad_idxs])
             bad_cs = np.array([self.c[i] for i in bad_idxs])
             if bad_idxs.size > 0:
-                raise ValueError("Invalid matrix or nodes: the rows of A must "
-                                 "sum to the elements of c, but row(s) "
-                                 f"{bad_idxs} of A sum to {bad_Ais}, while "
-                                 f"element(s) {bad_idxs} of c are {bad_cs}")
+                raise ValueError("The rows of A must sum to the elements of "
+                                 f"c, but row(s) {bad_idxs} of A sum to "
+                                 f"{bad_Ais}, while element(s) {bad_idxs} "
+                                 f"of c are {bad_cs}")
 
         # Additional checks for adaptive methods
         if self.isadaptive:
@@ -176,24 +174,23 @@ class RungeKutta:
 
                 # Verify b1 and b2 are vectors
                 if len(arr[1].shape) > 1:
-                    raise ValueError(f"Invalid dimensions: {arr[0]} must have "
-                                     "dimensions (n,), but instead has "
-                                     f"dimensions {arr[1].shape}")
+                    raise ValueError(f"{arr[0]} must have dimensions (n,), "
+                                     "but instead has dimensions "
+                                     f"{arr[1].shape}")
 
                 # Verify the elements of b1 and b2 sum to 1
                 if not isclose(np.sum(arr[1]), 1.0, rel_tol=1e-8):
-                    raise ValueError("Invalid weights: the elements of "
-                                     f"{arr[0]} must sum to 1, but instead "
-                                     f"sum to {np.sum(arr[1])}")
+                    raise ValueError(f"The elements of {arr[0]} must sum to 1, "
+                                     f"but instead sum to {np.sum(arr[1])}")
 
             # Verify the dimensions of A, b1, b2, and c match
             if not self.A.shape[0] == self.b1.size == \
                    self.b2.size == self.c.size:
-                raise ValueError("Invalid dimensions: dim(A), dim(b1), "
-                                 "dim(b2), and dim(c) must be (n, n), n, "
-                                 f"and n, but instead dim(A) = {self.A.shape}, "
-                                 f"dim(b1) = {self.b1.size}, dim(b2) = "
-                                 f"{self.b2.size}, and dim(c) = {self.c.size}")
+                raise ValueError("dim(A), dim(b1), dim(b2), and dim(c) must "
+                                 "be (n, n), n, and n, but instead dim(A) = "
+                                 f"{self.A.shape}, dim(b1) = {self.b1.size}, "
+                                 f"dim(b2) = {self.b2.size}, and dim(c) = "
+                                 f"{self.c.size}")
 
         # Additional checks for fixed methods
         else:
@@ -204,21 +201,20 @@ class RungeKutta:
 
             # Verify b is a vector
             if len(self.b.shape) > 1:
-                raise ValueError("Invalid dimensions: b must have "
-                                 "dimensions (n,), but instead has dimensions "
-                                 f"{self.b.shape}")
+                raise ValueError("b must have dimensions (n,), but instead "
+                                 f"has dimensions {self.b.shape}")
 
             # Verify the elements of b sum to 1
             if not isclose(np.sum(self.b), 1.0, rel_tol=1e-8):
-                raise ValueError(f"Invalid weights: the elements of b must sum "
-                                 f"to 1, but instead sum to {np.sum(self.b)}")
+                raise ValueError("the elements of b must sum to 1, but instead "
+                                 f"sum to {np.sum(self.b)}")
 
             # Verify the dimensions of A, b, and c match
             if not self.A.shape[0] == self.b.size == self.c.size:
-                raise ValueError("Invalid dimensions: dim(A), dim(b), and "
-                                 "dim(c) must be (n, n), n, and n, but instead "
-                                 f"dim(A) = {self.A.shape}, dim(b) = "
-                                 f"{self.b.size}, and dim(c) = {self.c.size}")
+                raise ValueError("dim(A), dim(b), and dim(c) must be (n, n), "
+                                 "n, and n, but instead dim(A) = "
+                                 f"{self.A.shape}, dim(b) = {self.b.size}, and "
+                                 f"dim(c) = {self.c.size}")
 
     # --------------------------------------------------------------------------
     # Public methods
