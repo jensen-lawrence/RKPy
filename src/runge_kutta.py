@@ -96,10 +96,22 @@ class RungeKutta:
         bool
             True if other is equal to self, False otherwise.
         """
-        class_match = isinstance(other, RungeKutta)
-        param_match = (self.A == other.A) and (self.b == other.b) \
-                      and (self.c == other.c)
-        return class_match and param_match
+        if isinstance(other, RungeKutta):
+            param_match = self.name == other.name
+
+            param_match &= np.array_equal(self.A, other.A)
+
+            if self.isadaptive:
+                param_match &= np.array_equal(self.b1, other.b1)
+                param_match &= np.array_equal(self.b2, other.b2)
+            else:
+                param_match &= np.array_equal(self.b, other.b)
+
+            param_match &= np.array_equal(self.c, other.c)
+
+            return param_match
+
+        return False
 
 
     def _check_parameters(self) -> None:
