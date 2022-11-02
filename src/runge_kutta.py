@@ -5,7 +5,6 @@
 import numpy as np
 from math import isclose
 from typing import Any, Union
-# from sympy import Rational
 
 # ------------------------------------------------------------------------------
 # RungeKutta Class
